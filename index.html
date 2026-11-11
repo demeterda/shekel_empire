@@ -370,28 +370,72 @@ for(const [id,lang] of [['langRU','ru'],['langPL','pl']])document.getElementById
  render();
 });
 
-tick();render();save();if(!s.event&&s.eventAt<=NOW())s.eventAt=NOW()+180000+Math.random()*180000;render();save();// Update live numbers without destroying buttons or interrupting clicks.
-function renderLiveNumbers(){
+tick();render();save();if(!s.event&&s.eventAt<=NOW())s.eventAt=NOW()+180000+Math.random()*180000;render();save();// Smooth incremental updates. Never replace the live #main/#nav containers.
+function morphNode(oldNode,newNode){
+ if(oldNode.nodeType!==newNode.nodeType||
+   (oldNode.nodeType===1&&oldNode.tagName!==newNode.tagName)){
+   oldNode.replaceWith(newNode.cloneNode(true));return;
+ }
+ if(oldNode.nodeType===3){
+   if(oldNode.nodeValue!==newNode.nodeValue)oldNode.nodeValue=newNode.nodeValue;
+   return;
+ }
+ if(oldNode.nodeType!==1)return;
+ const active=oldNode===document.activeElement;
+ const detailsOpen=oldNode.tagName==='DETAILS'?oldNode.open:null;
+ for(const a of Array.from(oldNode.attributes))
+   if(!newNode.hasAttribute(a.name))oldNode.removeAttribute(a.name);
+ for(const a of Array.from(newNode.attributes))
+   if(!(active&&['value','checked'].includes(a.name))&&oldNode.getAttribute(a.name)!==a.value)
+     oldNode.setAttribute(a.name,a.value);
+ if(detailsOpen!==null)oldNode.open=detailsOpen;
+ if(active&&/^(INPUT|TEXTAREA|SELECT)$/.test(oldNode.tagName))return;
+ const wanted=Array.from(newNode.childNodes);
+ // Reuse matching existing nodes so a live update does not interrupt clicks.
+ for(let i=0;i<wanted.length;i++){
+   if(i>=oldNode.childNodes.length)oldNode.appendChild(wanted[i].cloneNode(true));
+   else morphNode(oldNode.childNodes[i],wanted[i]);
+ }
+ while(oldNode.childNodes.length>wanted.length)oldNode.lastChild.remove();
+}
+function morphHTML(container,html){
+ const temp=document.createElement('div');
+ temp.innerHTML=html;
+ const nodes=Array.from(temp.childNodes);
+ for(let i=0;i<nodes.length;i++){
+   if(i>=container.childNodes.length)container.appendChild(nodes[i].cloneNode(true));
+   else morphNode(container.childNodes[i],nodes[i]);
+ }
+ while(container.childNodes.length>nodes.length)container.lastChild.remove();
+}
+let livePointerDown=false;
+document.addEventListener('pointerdown',()=>{livePointerDown=true;},true);
+document.addEventListener('pointerup',()=>{livePointerDown=false;},true);
+document.addEventListener('pointercancel',()=>{livePointerDown=false;},true);
+window.addEventListener('blur',()=>{livePointerDown=false;});
+function liveRender(){
  document.getElementById('cash').textContent='₪'+fmt(s.cash);
  document.getElementById('income').textContent='₪'+fmt(income());
  document.getElementById('gold').innerHTML=INGOT+' '+fmt(s.gold);
  document.getElementById('multi').textContent='×'+fmt(rebirthMultiplier());
- // Keep business purchase buttons in place while refreshing their prices and availability.
- if(tab==='business')for(const btn of document.querySelectorAll('#main button[data-action]')){
-  const action=btn.getAttribute('data-action')||'';
-  let m=/^(buy|bizup):(\d+)$/.exec(action);
-  if(!m)continue;
-  const i=Number(m[2]);
-  if(m[1]==='buy'){
-   const n=requestedCount(i),costNow=bulkCost(i,n);
-   btn.disabled=n<1||s.cash<costNow;
-   btn.textContent='Купить ×'+(buyAmount==='MAX'?'MAX':buyAmount)+' · ₪'+fmt(costNow);
-  }else{
-   const costNow=bizUpCost(i);
-   btn.disabled=s.cash<costNow;
-   btn.textContent='Мастерство +25% (ур. '+bizLv(i)+') · ₪'+fmt(costNow);
-  }
- }
+ document.getElementById('realmTitle').textContent=countries[s.country]+' · эпоха '+(s.country+1)+' из 30';
+ if(livePointerDown)return;
+ const views={business:businessView,upgrades:upgradesView,shop:shopView,
+ country:countryView,spec:specView,achievements:achievementsView,
+ secrets:secretsView,ranking:rankingView,market:marketView,
+ contracts:contractsView,artifacts:artifactsView,projects:projectsView,
+ relics:relicsView,reputation:reputationView,info:infoView};
+ morphHTML(document.getElementById('main'),eventView()+views[tab]());
+ const progress='<div class="gold">'+(s.country+1)+' / 30 царств</div><div class="bar"><div style="width:'+((s.country+1)/30*100)+'%"></div></div><div class="muted small">Время в игре: '+fmt(s.play/3600)+' ч<br>Всего заработано: ₪'+fmt(s.lifetime)+'<br>Перерождений: '+s.rebirths+'<br>Шанс золота: '+((.01+pLv('goldChance')*.001)*100).toFixed(2)+'%</div>';
+ morphHTML(document.getElementById('progress'),progress);
+ const logHTML=s.logs.map(x=>'<p>'+esc(x)+'</p>').join('');
+ morphHTML(document.getElementById('log'),logHTML);
+ updateBoostTimers();
+ if(currentLang==='pl')translatePage();
 }
-setInterval(()=>{tick();renderLiveNumbers();save()},1000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')save();else{tick();render();save()}});window.addEventListener('beforeunload',save);
+setInterval(()=>{
+ try{tick();liveRender();save();}
+ catch(error){console.error('Shekel Empire live update:',error);}
+},1000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')save();else{tick();render();save()}});window.addEventListener('beforeunload',save);
 })();</script></body></html>
